@@ -1,0 +1,1066 @@
+# ================================================================
+#              AI SMART STUDY ASSISTANT V10
+#              GOOGLE COLAB • GEMINI AI
+#              ONE CELL • PROFESSIONAL EDITION
+# ================================================================
+
+!pip -q install -U google-genai pypdf
+
+import os
+import json
+import time
+import random
+import re
+from datetime import datetime
+from pathlib import Path
+
+from google import genai
+from google.colab import files
+from IPython.display import clear_output, Markdown, display
+
+# ================================================================
+# 1. GEMINI API CONFIGURATION
+# ================================================================
+
+# OPTION A — Colab Secret:
+# Add GEMINI_API_KEY in:
+# Colab → Secrets → Add new secret
+
+API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
+# If Colab Secret is not available, enter it securely at runtime.
+if not API_KEY:
+    try:
+        from getpass import getpass
+        API_KEY = getpass("Enter Gemini API Key (hidden): ").strip()
+    except:
+        API_KEY = ""
+
+if not API_KEY:
+    print("⚠️ No Gemini API key configured.")
+    print("Local study features will still work.")
+
+client = None
+
+if API_KEY:
+    try:
+        client = genai.Client(api_key=API_KEY)
+        print("✅ Gemini AI connected successfully.")
+    except Exception as e:
+        print("❌ Gemini connection failed:")
+        print(e)
+        client = None
+
+
+# Current Gemini model.
+# If unavailable for your account, change this model name.
+MODEL = "gemini-3.8-flash"
+
+
+# ================================================================
+# 2. DATABASE
+# ================================================================
+
+DATA_FILE = "/content/AI_Study_Assistant_V10_Data.json"
+
+def load_data():
+
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+
+    return {
+        "notes": [],
+        "subjects": [],
+        "quiz_results": [],
+        "study_minutes": 0,
+        "questions": 0,
+        "correct": 0,
+        "history": []
+    }
+
+
+data = load_data()
+
+
+def save_data():
+
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            indent=2,
+            ensure_ascii=False
+        )
+
+
+# ================================================================
+# 3. UI
+# ================================================================
+
+def header():
+
+    clear_output(wait=True)
+
+    mode = "GEMINI AI + LOCAL" if client else "LOCAL MODE"
+
+    print("=" * 78)
+    print("             🤖 AI SMART STUDY ASSISTANT V10")
+    print("=" * 78)
+    print(f" Version : V10")
+    print(f" Mode    : {mode}")
+    print(f" Date    : {datetime.now().strftime('%d-%m-%Y %H:%M')}")
+    print("=" * 78)
+
+
+def pause():
+
+    input("\nPress ENTER to continue...")
+
+
+# ================================================================
+# 4. GEMINI AI ENGINE
+# ================================================================
+
+def ask_ai(prompt):
+
+    if not client:
+        return (
+            "⚠️ Gemini API is not connected.\n\n"
+            "Please configure GEMINI_API_KEY in Colab Secrets."
+        )
+
+    try:
+
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt
+        )
+
+        return response.text
+
+    except Exception as e:
+
+        return f"""
+❌ Gemini API Error
+
+{e}
+
+Possible reasons:
+• API key invalid/revoked
+• Model unavailable
+• API quota exceeded
+• Network/API problem
+"""
+
+
+# ================================================================
+# 5. AI STUDY CHAT
+# ================================================================
+
+def ai_chat():
+
+    header()
+
+    print("🤖 AI STUDY CHAT")
+    print("-" * 78)
+
+    question = input(
+        "\nAsk your study question:\n\n> "
+    ).strip()
+
+    if not question:
+        return
+
+    prompt = f"""
+You are AI Smart Study Assistant V10.
+
+You are a professional educational AI tutor.
+
+Student question:
+{question}
+
+Instructions:
+1. Explain clearly.
+2. Use beginner-friendly language.
+3. Give examples where useful.
+4. If mathematical, show steps.
+5. If programming related, provide working code.
+6. Mention important points.
+7. End with a short revision summary.
+8. Support Urdu, English and Roman Urdu.
+"""
+
+    print("\n⏳ AI is thinking...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("🤖 AI ANSWER")
+    print("=" * 78)
+    print(answer)
+
+    data["questions"] += 1
+    data["history"].append(
+        f"AI question: {question[:80]}"
+    )
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 6. AI SUMMARIZER
+# ================================================================
+
+def ai_summarizer():
+
+    header()
+
+    print("📚 AI SMART SUMMARIZER")
+    print("-" * 78)
+
+    text = input(
+        "\nPaste your notes/text:\n\n> "
+    )
+
+    if not text.strip():
+        return
+
+    prompt = f"""
+Summarize the following study material.
+
+Create:
+
+1. Short Summary
+2. Important Concepts
+3. Key Definitions
+4. Important Facts
+5. Exam Points
+6. 5 Quick Revision Questions
+
+Study material:
+
+{text}
+"""
+
+    print("\n⏳ Generating summary...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("📚 AI SUMMARY")
+    print("=" * 78)
+
+    print(answer)
+
+    data["notes"].append({
+        "type": "AI Summary",
+        "date": datetime.now().isoformat(),
+        "content": answer
+    })
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 7. AI MCQ GENERATOR
+# ================================================================
+
+def generate_mcqs():
+
+    header()
+
+    print("❓ AI MCQ GENERATOR")
+    print("-" * 78)
+
+    topic = input("\nTopic: ").strip()
+
+    if not topic:
+        return
+
+    try:
+        number = int(
+            input("Number of MCQs (5-20): ") or "10"
+        )
+    except:
+        number = 10
+
+    number = max(5, min(number, 20))
+
+    prompt = f"""
+Create {number} high-quality multiple-choice questions
+for a student studying:
+
+TOPIC:
+{topic}
+
+Requirements:
+
+- 4 options per question
+- Only one correct answer
+- Clearly mark correct answer
+- Give a short explanation
+- Mix easy, medium and difficult questions
+- Make questions educational and exam-oriented
+"""
+
+    print("\n⏳ Generating MCQs...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("📝 GENERATED MCQs")
+    print("=" * 78)
+
+    print(answer)
+
+    data["history"].append(
+        f"Generated {number} MCQs: {topic}"
+    )
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 8. AI NOTES GENERATOR
+# ================================================================
+
+def notes_generator():
+
+    header()
+
+    print("📝 AI NOTES GENERATOR")
+    print("-" * 78)
+
+    topic = input("\nEnter lesson/topic:\n> ").strip()
+
+    if not topic:
+        return
+
+    prompt = f"""
+Create professional study notes for:
+
+{topic}
+
+Structure:
+
+# Topic
+
+## Definition
+
+## Main Concepts
+
+## Important Points
+
+## Examples
+
+## Advantages / Applications
+
+## Common Exam Questions
+
+## Quick Revision
+
+Use simple language suitable for a university student.
+"""
+
+    print("\n⏳ Creating notes...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("📚 AI GENERATED NOTES")
+    print("=" * 78)
+
+    print(answer)
+
+    data["notes"].append({
+        "type": "Generated Notes",
+        "topic": topic,
+        "date": datetime.now().isoformat(),
+        "content": answer
+    })
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 9. PDF AI ANALYZER
+# ================================================================
+
+def pdf_analyzer():
+
+    header()
+
+    print("📄 AI PDF ANALYZER")
+    print("-" * 78)
+
+    uploaded = files.upload()
+
+    if not uploaded:
+        return
+
+    filename = list(uploaded.keys())[0]
+
+    if not filename.lower().endswith(".pdf"):
+
+        print("❌ Please upload a PDF.")
+        pause()
+        return
+
+    try:
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(filename)
+
+        text = ""
+
+        for page in reader.pages:
+
+            extracted = page.extract_text()
+
+            if extracted:
+                text += extracted + "\n"
+
+        if not text.strip():
+
+            print("❌ No readable text found.")
+            pause()
+            return
+
+        print(
+            f"✅ PDF loaded: {filename}"
+        )
+
+        print(
+            f"📄 Pages: {len(reader.pages)}"
+        )
+
+        # Keep request manageable
+        text_for_ai = text[:100000]
+
+        prompt = f"""
+You are an AI university study assistant.
+
+Analyze this PDF content:
+
+{text_for_ai}
+
+Create:
+
+1. Executive Summary
+2. Chapter/Section-wise Summary
+3. Important Definitions
+4. Important Concepts
+5. Exam Important Questions
+6. 10 MCQs
+7. Short Questions
+8. Long Questions
+9. Quick Revision Sheet
+10. Difficult Topics students should revise
+
+Do not invent information not present in the document.
+"""
+
+        print("\n⏳ AI is analyzing PDF...\n")
+
+        answer = ask_ai(prompt)
+
+        print("=" * 78)
+        print("📚 PDF STUDY ANALYSIS")
+        print("=" * 78)
+
+        print(answer)
+
+        data["notes"].append({
+            "type": "PDF Analysis",
+            "filename": filename,
+            "date": datetime.now().isoformat(),
+            "content": answer
+        })
+
+        data["history"].append(
+            f"Analyzed PDF: {filename}"
+        )
+
+        save_data()
+
+    except Exception as e:
+
+        print("❌ PDF Error:")
+        print(e)
+
+    pause()
+
+
+# ================================================================
+# 10. AI QUIZ
+# ================================================================
+
+def ai_quiz():
+
+    header()
+
+    print("🎯 AI QUIZ GENERATOR")
+    print("-" * 78)
+
+    topic = input("\nQuiz topic: ").strip()
+
+    if not topic:
+        return
+
+    prompt = f"""
+Create a 5-question quiz about:
+
+{topic}
+
+Return ONLY JSON in this format:
+
+[
+  {{
+    "question": "Question",
+    "options": [
+      "Option 1",
+      "Option 2",
+      "Option 3",
+      "Option 4"
+    ],
+    "answer": 1,
+    "explanation": "Explanation"
+  }}
+]
+
+answer must be the option number from 1 to 4.
+"""
+
+    print("\n⏳ Creating quiz...\n")
+
+    raw = ask_ai(prompt)
+
+    try:
+
+        match = re.search(
+            r"\[.*\]",
+            raw,
+            re.DOTALL
+        )
+
+        quiz = json.loads(match.group(0))
+
+    except:
+
+        print("Could not parse AI quiz.")
+        print(raw)
+
+        pause()
+        return
+
+    score = 0
+
+    for index, q in enumerate(quiz, 1):
+
+        print("\n" + "=" * 78)
+
+        print(
+            f"{index}. {q['question']}"
+        )
+
+        for i, option in enumerate(
+            q["options"], 1
+        ):
+
+            print(
+                f"{i}. {option}"
+            )
+
+        try:
+
+            answer = int(
+                input("\nYour answer: ")
+            )
+
+        except:
+
+            answer = 0
+
+        if answer == q["answer"]:
+
+            print("✅ Correct!")
+            score += 1
+            data["correct"] += 1
+
+        else:
+
+            print(
+                "❌ Incorrect."
+            )
+
+            print(
+                "Correct:",
+                q["options"][q["answer"] - 1]
+            )
+
+        data["questions"] += 1
+
+    percentage = (
+        score / len(quiz)
+    ) * 100
+
+    print("\n" + "=" * 78)
+    print("🏆 QUIZ RESULT")
+    print("=" * 78)
+
+    print(
+        f"Score: {score}/{len(quiz)}"
+    )
+
+    print(
+        f"Percentage: {percentage:.1f}%"
+    )
+
+    data["quiz_results"].append({
+        "topic": topic,
+        "score": score,
+        "total": len(quiz),
+        "percentage": percentage,
+        "date": datetime.now().isoformat()
+    })
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 11. AI FLASHCARDS
+# ================================================================
+
+def flashcards():
+
+    header()
+
+    print("🃏 AI FLASHCARDS")
+    print("-" * 78)
+
+    topic = input("\nTopic: ").strip()
+
+    if not topic:
+        return
+
+    prompt = f"""
+Create 10 study flashcards about:
+
+{topic}
+
+Format:
+
+CARD 1
+Question:
+Answer:
+
+CARD 2
+Question:
+Answer:
+
+Keep answers short and useful for revision.
+"""
+
+    print("\n⏳ Creating flashcards...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("🃏 FLASHCARDS")
+    print("=" * 78)
+
+    print(answer)
+
+    pause()
+
+
+# ================================================================
+# 12. AI STUDY PLAN
+# ================================================================
+
+def study_plan():
+
+    header()
+
+    print("📅 AI PERSONAL STUDY PLAN")
+    print("-" * 78)
+
+    subjects = input(
+        "\nSubjects separated by comma:\n> "
+    ).strip()
+
+    days = input(
+        "\nNumber of preparation days: "
+    ).strip()
+
+    hours = input(
+        "\nDaily study hours: "
+    ).strip()
+
+    if not subjects:
+        return
+
+    prompt = f"""
+Create a personalized university study plan.
+
+Subjects:
+{subjects}
+
+Preparation days:
+{days}
+
+Daily study hours:
+{hours}
+
+Include:
+
+- Daily schedule
+- Subject rotation
+- Revision sessions
+- Practice sessions
+- Quiz days
+- Weak-topic review
+- Final revision
+"""
+
+    print("\n⏳ Building study plan...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("📅 YOUR AI STUDY PLAN")
+    print("=" * 78)
+
+    print(answer)
+
+    data["subjects"] = [
+        x.strip()
+        for x in subjects.split(",")
+        if x.strip()
+    ]
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 13. CODING TUTOR
+# ================================================================
+
+def coding_tutor():
+
+    header()
+
+    print("💻 AI CODING TUTOR")
+    print("-" * 78)
+
+    language = input(
+        "\nProgramming language: "
+    ).strip()
+
+    problem = input(
+        "\nWhat do you want to learn/fix?\n> "
+    ).strip()
+
+    if not problem:
+        return
+
+    prompt = f"""
+You are an expert programming tutor.
+
+Language:
+{language}
+
+Student request:
+{problem}
+
+Provide:
+
+1. Explanation
+2. Correct code
+3. Line-by-line explanation
+4. Expected output
+5. Common errors
+6. Improved version if useful
+
+Teach the student rather than only giving the answer.
+"""
+
+    print("\n⏳ AI Coding Tutor...\n")
+
+    answer = ask_ai(prompt)
+
+    print("=" * 78)
+    print("💻 CODING TUTOR")
+    print("=" * 78)
+
+    print(answer)
+
+    pause()
+
+
+# ================================================================
+# 14. PROGRESS DASHBOARD
+# ================================================================
+
+def dashboard():
+
+    header()
+
+    print("📊 STUDENT PROGRESS DASHBOARD")
+    print("=" * 78)
+
+    quiz_count = len(data["quiz_results"])
+
+    if quiz_count:
+
+        average = sum(
+            x["percentage"]
+            for x in data["quiz_results"]
+        ) / quiz_count
+
+    else:
+
+        average = 0
+
+    if data["questions"]:
+
+        accuracy = (
+            data["correct"] /
+            data["questions"]
+        ) * 100
+
+    else:
+
+        accuracy = 0
+
+    print(f"""
+📚 Subjects             : {len(data["subjects"])}
+📝 Saved Notes           : {len(data["notes"])}
+🎯 Quizzes              : {quiz_count}
+❓ Questions             : {data["questions"]}
+✅ Correct               : {data["correct"]}
+🎯 Accuracy              : {accuracy:.1f}%
+📈 Average Quiz Score    : {average:.1f}%
+⏱️ Study Time            : {data["study_minutes"]} minutes
+""")
+
+    if average >= 80:
+
+        print("🏆 Performance: EXCELLENT")
+
+    elif average >= 60:
+
+        print("👍 Performance: GOOD")
+
+    elif quiz_count:
+
+        print("⚠️ Performance: NEEDS IMPROVEMENT")
+
+    else:
+
+        print("📚 Complete some quizzes to measure performance.")
+
+    print("\nRECENT ACTIVITY")
+    print("-" * 78)
+
+    for item in data["history"][-10:]:
+
+        print("•", item)
+
+    pause()
+
+
+# ================================================================
+# 15. STUDY TIMER
+# ================================================================
+
+def study_timer():
+
+    header()
+
+    print("⏱️ FOCUS STUDY TIMER")
+    print("-" * 78)
+
+    try:
+
+        minutes = int(
+            input(
+                "\nStudy minutes (default 25): "
+            ) or 25
+        )
+
+    except:
+
+        minutes = 25
+
+    seconds = minutes * 60
+
+    print("\n🚀 Study session started!")
+
+    while seconds > 0:
+
+        m, s = divmod(seconds, 60)
+
+        print(
+            f"\r⏳ {m:02d}:{s:02d}",
+            end=""
+        )
+
+        time.sleep(1)
+
+        seconds -= 1
+
+    print("\n\n🎉 Session complete!")
+
+    data["study_minutes"] += minutes
+
+    data["history"].append(
+        f"Completed {minutes}-minute study session"
+    )
+
+    save_data()
+
+    pause()
+
+
+# ================================================================
+# 16. EXPORT
+# ================================================================
+
+def export_data():
+
+    header()
+
+    output = "/content/AI_Study_Assistant_V10_Report.json"
+
+    save_data()
+
+    with open(
+        output,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            data,
+            f,
+            indent=2,
+            ensure_ascii=False
+        )
+
+    print("✅ Report generated.")
+
+    files.download(output)
+
+    pause()
+
+
+# ================================================================
+# 17. MAIN MENU
+# ================================================================
+
+def main():
+
+    while True:
+
+        header()
+
+        print("""
+╔══════════════════════════════════════════════════════════════════════╗
+║                        V10 MAIN MENU                                ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  1  🤖 AI Study Chat                                                ║
+║  2  📚 AI Summarizer                                                ║
+║  3  📝 AI Notes Generator                                           ║
+║  4  ❓ AI MCQ Generator                                             ║
+║  5  🎯 AI Quiz                                                      ║
+║  6  🃏 AI Flashcards                                                ║
+║  7  📅 AI Study Planner                                             ║
+║  8  📄 AI PDF Analyzer                                              ║
+║  9  💻 AI Coding Tutor                                              ║
+║ 10  📊 Progress Dashboard                                           ║
+║ 11  ⏱️ Study Timer                                                  ║
+║ 12  💾 Export Study Data                                            ║
+║  0  🚪 Exit                                                         ║
+╚══════════════════════════════════════════════════════════════════════╝
+""")
+
+        choice = input("Select option: ").strip()
+
+        if choice == "1":
+            ai_chat()
+
+        elif choice == "2":
+            ai_summarizer()
+
+        elif choice == "3":
+            notes_generator()
+
+        elif choice == "4":
+            generate_mcqs()
+
+        elif choice == "5":
+            ai_quiz()
+
+        elif choice == "6":
+            flashcards()
+
+        elif choice == "7":
+            study_plan()
+
+        elif choice == "8":
+            pdf_analyzer()
+
+        elif choice == "9":
+            coding_tutor()
+
+        elif choice == "10":
+            dashboard()
+
+        elif choice == "11":
+            study_timer()
+
+        elif choice == "12":
+            export_data()
+
+        elif choice == "0":
+
+            save_data()
+
+            clear_output()
+
+            print("=" * 78)
+            print("       AI SMART STUDY ASSISTANT V10")
+            print("       Thank you for studying! 📚")
+            print("=" * 78)
+
+            break
+
+        else:
+
+            print("\n❌ Invalid option.")
+            time.sleep(1)
+
+
+# ================================================================
+# START V10
+# ================================================================
+
+main()
